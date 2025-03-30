@@ -70,12 +70,9 @@ fn main() -> Result<ExitCode> {
                 }
             }
             program => {
-                if let Some(executable_path) = find_executable(&system_path, program) {
-                    debug!(?executable_path, "executing program");
-                    let output = Command::new(executable_path)
-                        .args(cmd.args)
-                        .output()
-                        .unwrap();
+                if find_executable(&system_path, program).is_some() {
+                    debug!(program, "executing program");
+                    let output = Command::new(program).args(cmd.args).output().unwrap();
 
                     io::stdout().write_all(&output.stdout).unwrap();
                     io::stderr().write_all(&output.stderr).unwrap();
