@@ -1,13 +1,21 @@
 use std::io::{self, Write};
 
 fn main() {
-    // Uncomment this block to pass the first stage
-    print!("$ ");
-    io::stdout().flush().unwrap();
+    let prompt = "$ ";
 
-    // Wait for user input
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).unwrap();
+    loop {
+        print!("{prompt}");
+        io::stdout().flush().unwrap();
 
-    println!("{}: command not found", input.trim());
+        // Wait for user input
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+
+        let output = evaluate(input.trim());
+        println!("{output}");
+    }
+}
+
+fn evaluate(cmd: &str) -> String {
+    format!("{cmd}: command not found")
 }
