@@ -34,6 +34,10 @@ fn main() -> Result<ExitCode> {
 
                 return Ok(exit_code.into());
             }
+            "echo" => {
+                let output = cmd.args.join(" ");
+                println!("{output}\n");
+            }
             program => println!("{program}: command not found"),
         }
     }
