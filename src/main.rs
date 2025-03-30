@@ -1,12 +1,13 @@
 use std::{
-    env, fs,
+    env::{self, consts::EXE_SUFFIX},
+    fs,
     io::{self, Write},
     path::PathBuf,
-    process::ExitCode,
+    process::{Command, ExitCode},
 };
 
 use anyhow::{Context, Result};
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, trace};
 
 #[cfg(windows)]
 const SYSTEM_PATH_SPERATOR: &str = ";";
@@ -32,7 +33,7 @@ fn main() -> Result<ExitCode> {
         io::stdin().read_line(&mut input).unwrap();
         debug!(input);
 
-        if input.is_empty() {
+        if input.trim().is_empty() {
             continue;
         }
 
@@ -68,7 +69,20 @@ fn main() -> Result<ExitCode> {
                     }
                 }
             }
-            program => println!("{program}: command not found"),
+            program => {
+                if let Some(executable_path) = find_executable(&system_path, program) {
+                    debug!(?executable_path, "executing program");
+                    let output = Command::new(executable_path)
+                        .args(cmd.args)
+                        .output()
+                        .unwrap();
+
+                    io::stdout().write_all(&output.stdout).unwrap();
+                    io::stderr().write_all(&output.stderr).unwrap();
+                } else {
+                    println!("{program}: command not found");
+                }
+            }
         }
     }
 }
@@ -93,10 +107,17 @@ fn parse(input: &str) -> Result<Cmd> {
 }
 
 fn find_executable(system_path: &str, executable_name: &str) -> Option<PathBuf> {
-    let executable_name_with_exe = format!("{executable_name}.exe");
+    debug!(executable_name, "searching for executable");
+
+    let executable_name_with_suffix = format!("{executable_name}{EXE_SUFFIX}");
 
     for path in system_path.split(SYSTEM_PATH_SPERATOR) {
-        debug!("searching path {path} for executable");
+        trace!(
+            executable_name,
+            executable_name_with_suffix,
+            path,
+            "searching for executable"
+        );
         let Ok(entries) = fs::read_dir(path) else {
             continue;
         };
@@ -104,7 +125,7 @@ fn find_executable(system_path: &str, executable_name: &str) -> Option<PathBuf> 
         for entry in entries {
             let entry = entry.unwrap();
             if entry.file_name() == executable_name
-                || entry.file_name() == executable_name_with_exe.as_str()
+                || entry.file_name() == executable_name_with_suffix.as_str()
             {
                 return Some(entry.path());
             }
