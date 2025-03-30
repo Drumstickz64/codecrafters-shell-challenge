@@ -39,6 +39,15 @@ fn main() -> Result<ExitCode> {
                 println!("{output}");
                 io::stdout().flush()?;
             }
+            "type" => {
+                for arg in cmd.args {
+                    if ["exit", "echo", "type"].contains(&arg.as_str()) {
+                        println!("{arg} is a shell builtin")
+                    } else {
+                        println!("{arg}: not found");
+                    }
+                }
+            }
             program => println!("{program}: command not found"),
         }
     }
