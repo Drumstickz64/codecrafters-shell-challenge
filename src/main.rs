@@ -36,7 +36,7 @@ fn main() -> Result<ExitCode> {
             }
             "echo" => {
                 let output = cmd.args.join(" ");
-                println!("{output}\n");
+                println!("{output}");
                 io::stdout().flush()?;
             }
             program => println!("{program}: command not found"),
