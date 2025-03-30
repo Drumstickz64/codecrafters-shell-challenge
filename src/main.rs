@@ -10,7 +10,7 @@ fn main() -> Result<ExitCode> {
 
     loop {
         print!("{prompt}");
-        io::stdout().flush().unwrap();
+        io::stdout().flush()?;
 
         // Wait for user input
         let mut input = String::new();
@@ -37,6 +37,7 @@ fn main() -> Result<ExitCode> {
             "echo" => {
                 let output = cmd.args.join(" ");
                 println!("{output}\n");
+                io::stdout().flush()?;
             }
             program => println!("{program}: command not found"),
         }
