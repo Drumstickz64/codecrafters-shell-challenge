@@ -5,7 +5,7 @@ use std::{
     io::{self, Write},
     path::PathBuf,
     process::{Command, ExitCode},
-    sync::LazyLock,
+    sync::{LazyLock, Mutex},
 };
 
 use anyhow::{Context, Result};
@@ -25,8 +25,11 @@ static BUILTINS: LazyLock<HashMap<&str, BuiltinFn>> = LazyLock::new(|| {
         ("echo", builtin_echo as BuiltinFn),
         ("type", builtin_type as BuiltinFn),
         ("pwd", builtin_pwd as BuiltinFn),
+        ("cd", builtin_cd as BuiltinFn),
     ])
 });
+
+static CWD: LazyLock<Mutex<PathBuf>> = LazyLock::new(|| Mutex::new(env::current_dir().unwrap()));
 
 fn main() -> Result<ExitCode> {
     let prompt = "$ ";
@@ -157,7 +160,29 @@ fn builtin_type(args: Vec<String>) -> Result<Option<ExitCode>> {
 fn builtin_pwd(_args: Vec<String>) -> Result<Option<ExitCode>> {
     debug!("executable builtin command 'pwd'");
 
-    println!("{}", env::current_dir()?.display());
+    println!("{}", CWD.lock().unwrap().display());
+
+    Ok(None)
+}
+
+fn builtin_cd(args: Vec<String>) -> Result<Option<ExitCode>> {
+    debug!("executable builtin command 'cd'");
+
+    let mut cwd = CWD.lock().unwrap();
+    let input_path: PathBuf = args
+        .into_iter()
+        .next()
+        .expect("cd: too many arguments")
+        .into();
+
+    if !input_path.exists() {
+        println!("cd: {}: No such file or directory", input_path.display());
+        return Ok(None);
+    }
+
+    *cwd = input_path;
+
+    debug!(?cwd);
 
     Ok(None)
 }
