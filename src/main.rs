@@ -5,7 +5,7 @@ use std::{
     io::{self, Write},
     path::PathBuf,
     process::{Command, ExitCode},
-    sync::{LazyLock, Mutex},
+    sync::LazyLock,
 };
 
 use anyhow::{Context, Result};
@@ -28,8 +28,6 @@ static BUILTINS: LazyLock<HashMap<&str, BuiltinFn>> = LazyLock::new(|| {
         ("cd", builtin_cd as BuiltinFn),
     ])
 });
-
-static CWD: LazyLock<Mutex<PathBuf>> = LazyLock::new(|| Mutex::new(env::current_dir().unwrap()));
 
 fn main() -> Result<ExitCode> {
     let prompt = "$ ";
@@ -160,7 +158,7 @@ fn builtin_type(args: Vec<String>) -> Result<Option<ExitCode>> {
 fn builtin_pwd(_args: Vec<String>) -> Result<Option<ExitCode>> {
     debug!("executable builtin command 'pwd'");
 
-    println!("{}", CWD.lock().unwrap().display());
+    println!("{}", env::current_dir()?.display());
 
     Ok(None)
 }
@@ -168,19 +166,19 @@ fn builtin_pwd(_args: Vec<String>) -> Result<Option<ExitCode>> {
 fn builtin_cd(args: Vec<String>) -> Result<Option<ExitCode>> {
     debug!("executable builtin command 'cd'");
 
-    let mut cwd = CWD.lock().unwrap();
-    let input_path: PathBuf = args
-        .into_iter()
-        .next()
-        .expect("cd: too many arguments")
-        .into();
+    let input = args.into_iter().next().expect("cd: too many arguments");
 
-    if !input_path.exists() {
-        println!("cd: {}: No such file or directory", input_path.display());
-        return Ok(None);
-    }
+    let cwd = env::current_dir()?;
+    let input_path = match fs::canonicalize(&input) {
+        Ok(path) => path,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {
+            println!("cd: {}: No such file or directory", input);
+            return Ok(None);
+        }
+        Err(err) => return Err(err.into()),
+    };
 
-    *cwd = input_path;
+    env::set_current_dir(input_path)?;
 
     debug!(?cwd);
 
