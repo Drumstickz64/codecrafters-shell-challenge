@@ -91,12 +91,12 @@ fn parse(input: &str) -> Result<Cmd> {
     Ok(Cmd { program, args })
 }
 
-fn find_executable(system_path: &str, executable_name: &str) -> Option<PathBuf> {
+fn find_executable(search_path: &str, executable_name: &str) -> Option<PathBuf> {
     debug!(executable_name, "searching for executable");
 
     let executable_name_with_suffix = format!("{executable_name}{EXE_SUFFIX}");
 
-    for path in system_path.split(SYSTEM_PATH_SPERATOR) {
+    for path in search_path.split(SYSTEM_PATH_SPERATOR) {
         trace!(
             executable_name,
             executable_name_with_suffix,
@@ -119,7 +119,7 @@ fn find_executable(system_path: &str, executable_name: &str) -> Option<PathBuf> 
 
     None
 }
-
+#[instrument]
 fn builtin_exit(args: Vec<String>) -> Result<Option<ExitCode>> {
     let Some(exit_code) = args.first() else {
         return Ok(Some(ExitCode::SUCCESS));
@@ -131,14 +131,14 @@ fn builtin_exit(args: Vec<String>) -> Result<Option<ExitCode>> {
 
     Ok(Some(exit_code.into()))
 }
-
+#[instrument]
 fn builtin_echo(args: Vec<String>) -> Result<Option<ExitCode>> {
     debug!("executable builtin command 'echo'");
     let output = args.join(" ");
     println!("{output}");
     Ok(None)
 }
-
+#[instrument]
 fn builtin_type(args: Vec<String>) -> Result<Option<ExitCode>> {
     debug!("executable builtin command 'type'");
 
@@ -154,7 +154,7 @@ fn builtin_type(args: Vec<String>) -> Result<Option<ExitCode>> {
 
     Ok(None)
 }
-
+#[instrument]
 fn builtin_pwd(_args: Vec<String>) -> Result<Option<ExitCode>> {
     debug!("executable builtin command 'pwd'");
 
@@ -162,11 +162,24 @@ fn builtin_pwd(_args: Vec<String>) -> Result<Option<ExitCode>> {
 
     Ok(None)
 }
-
+#[instrument]
 fn builtin_cd(args: Vec<String>) -> Result<Option<ExitCode>> {
+    assert!(args.len() == 1);
+
     debug!("executable builtin command 'cd'");
 
-    let input = args.into_iter().next().expect("cd: too many arguments");
+    let input = args
+        .into_iter()
+        .next()
+        .expect("expected path to be passed to 'cd' command");
+
+    if input == "~" {
+        let home = env::var("HOME")?;
+        debug!(home, "changing to home directory");
+
+        env::set_current_dir(home)?;
+        return Ok(None);
+    }
 
     let cwd = env::current_dir()?;
     let input_path = match fs::canonicalize(&input) {
