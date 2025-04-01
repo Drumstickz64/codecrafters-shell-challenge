@@ -47,11 +47,13 @@ fn main() -> Result<ExitCode> {
         io::stdin().read_line(&mut input).unwrap();
         debug!(input);
 
-        if input.trim().is_empty() {
+        let input = input.trim();
+
+        if input.is_empty() {
             continue;
         }
 
-        let cmd = parse(&input)?;
+        let cmd = parse(input).context("unable to parse prompt")?;
         debug!(?cmd);
 
         let program = cmd.program.as_str();
@@ -80,15 +82,45 @@ struct Cmd {
 
 #[instrument]
 fn parse(input: &str) -> Result<Cmd> {
-    let mut components = input.split_whitespace();
-    let program = components
-        .next()
-        .expect("expected input to not be empty")
-        .to_owned();
+    assert!(!input.is_empty());
 
-    let args = components.map(|s| s.to_owned()).collect();
+    let mut components = Vec::new();
 
-    Ok(Cmd { program, args })
+    let mut start = 0;
+    let mut it = input.char_indices().peekable();
+    while let Some((i, ch)) = it.next() {
+        if ch == '\'' {
+            let (closing_quote_index, _) = it
+                .by_ref()
+                .find(|(_, ch)| *ch == '\'')
+                .context("did not find a closing single quote")?;
+
+            components.push(input[i + 1..closing_quote_index].to_owned());
+            start = 1 + closing_quote_index;
+        } else if ch.is_whitespace() {
+            components.push(input[start..i].to_owned());
+            // ignore all following whitespace
+            while let Some((search_index, search_char)) = it.peek() {
+                if !search_char.is_whitespace() {
+                    start = *search_index;
+                    break;
+                }
+
+                it.next();
+            }
+        }
+    }
+
+    if !input[start..].is_empty() {
+        components.push(input[start..].to_owned());
+    }
+
+    let program = components.remove(0);
+
+    Ok(Cmd {
+        program,
+        args: components,
+    })
 }
 
 fn find_executable(search_path: &str, executable_name: &str) -> Option<PathBuf> {
@@ -119,6 +151,7 @@ fn find_executable(search_path: &str, executable_name: &str) -> Option<PathBuf> 
 
     None
 }
+
 #[instrument]
 fn builtin_exit(args: Vec<String>) -> Result<Option<ExitCode>> {
     let Some(exit_code) = args.first() else {
@@ -131,6 +164,7 @@ fn builtin_exit(args: Vec<String>) -> Result<Option<ExitCode>> {
 
     Ok(Some(exit_code.into()))
 }
+
 #[instrument]
 fn builtin_echo(args: Vec<String>) -> Result<Option<ExitCode>> {
     debug!("executable builtin command 'echo'");
@@ -138,6 +172,7 @@ fn builtin_echo(args: Vec<String>) -> Result<Option<ExitCode>> {
     println!("{output}");
     Ok(None)
 }
+
 #[instrument]
 fn builtin_type(args: Vec<String>) -> Result<Option<ExitCode>> {
     debug!("executable builtin command 'type'");
@@ -154,6 +189,7 @@ fn builtin_type(args: Vec<String>) -> Result<Option<ExitCode>> {
 
     Ok(None)
 }
+
 #[instrument]
 fn builtin_pwd(_args: Vec<String>) -> Result<Option<ExitCode>> {
     debug!("executable builtin command 'pwd'");
@@ -162,6 +198,7 @@ fn builtin_pwd(_args: Vec<String>) -> Result<Option<ExitCode>> {
 
     Ok(None)
 }
+
 #[instrument]
 fn builtin_cd(args: Vec<String>) -> Result<Option<ExitCode>> {
     assert!(args.len() == 1);
