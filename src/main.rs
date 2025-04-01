@@ -97,6 +97,14 @@ fn parse(input: &str) -> Result<Cmd> {
 
             components.push(input[i + 1..closing_quote_index].to_owned());
             start = 1 + closing_quote_index;
+        } else if ch == '"' {
+            let (closing_quote_index, _) = it
+                .by_ref()
+                .find(|(_, ch)| *ch == '"')
+                .context("did not find a closing double quote")?;
+
+            components.push(input[i + 1..closing_quote_index].to_owned());
+            start = 1 + closing_quote_index;
         } else if ch.is_whitespace() {
             components.push(input[start..i].to_owned());
             // ignore all following whitespace
