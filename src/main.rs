@@ -47,7 +47,7 @@ fn main() -> Result<ExitCode> {
         io::stdin().read_line(&mut input).unwrap();
         debug!(input);
 
-        let input = input.trim();
+        let input = input.trim_start().trim_newline();
 
         if input.is_empty() {
             continue;
@@ -86,7 +86,7 @@ fn parse(input: &str) -> Result<Cmd> {
 
     let mut components = Vec::new();
 
-    let mut start = 0;
+    let mut current_component = String::new();
     let mut it = input.char_indices().peekable();
     while let Some((i, ch)) = it.next() {
         if ch == '\'' {
@@ -96,7 +96,6 @@ fn parse(input: &str) -> Result<Cmd> {
                 .context("did not find a closing single quote")?;
 
             components.push(input[i + 1..closing_quote_index].to_owned());
-            start = 1 + closing_quote_index;
         } else if ch == '"' {
             let (closing_quote_index, _) = it
                 .by_ref()
@@ -104,23 +103,30 @@ fn parse(input: &str) -> Result<Cmd> {
                 .context("did not find a closing double quote")?;
 
             components.push(input[i + 1..closing_quote_index].to_owned());
-            start = 1 + closing_quote_index;
+        } else if ch == '\\' {
+            let (_, next_char) = it
+                .next()
+                .context("expected a character after '\', but got nothing")?;
+
+            current_component.push(next_char);
         } else if ch.is_whitespace() {
-            components.push(input[start..i].to_owned());
+            components.push(current_component);
+            current_component = String::new();
             // ignore all following whitespace
-            while let Some((search_index, search_char)) = it.peek() {
+            while let Some((_, search_char)) = it.peek() {
                 if !search_char.is_whitespace() {
-                    start = *search_index;
                     break;
                 }
 
                 it.next();
             }
+        } else {
+            current_component.push(ch);
         }
     }
 
-    if !input[start..].is_empty() {
-        components.push(input[start..].to_owned());
+    if !current_component.is_empty() {
+        components.push(current_component);
     }
 
     let program = components.remove(0);
@@ -241,4 +247,22 @@ fn builtin_cd(args: Vec<String>) -> Result<Option<ExitCode>> {
     debug!(?cwd);
 
     Ok(None)
+}
+
+trait StrExt {
+    fn trim_newline(&self) -> &Self;
+}
+
+impl StrExt for str {
+    fn trim_newline(&self) -> &Self {
+        let mut output = self;
+        if let Some(stripped) = output.strip_suffix("\n") {
+            output = stripped;
+            if let Some(stripped) = output.strip_suffix("\r") {
+                output = stripped;
+            }
+        }
+
+        output
+    }
 }
