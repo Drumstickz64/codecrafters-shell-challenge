@@ -5,10 +5,9 @@ use std::{
     io::{self, Write},
     path::PathBuf,
     process::{Command, ExitCode},
-    sync::LazyLock,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context as AnyhowContext, Result};
 use tracing::{debug, instrument, trace};
 
 #[cfg(windows)]
@@ -16,18 +15,7 @@ const SYSTEM_PATH_SPERATOR: &str = ";";
 #[cfg(not(windows))]
 const SYSTEM_PATH_SPERATOR: &str = ":";
 
-type BuiltinFn = fn(Vec<String>) -> Result<Option<ExitCode>>;
-
-static SYSTEM_PATH: LazyLock<String> = LazyLock::new(|| env::var("PATH").unwrap_or_default());
-static BUILTINS: LazyLock<HashMap<&str, BuiltinFn>> = LazyLock::new(|| {
-    HashMap::from([
-        ("exit", builtin_exit as BuiltinFn),
-        ("echo", builtin_echo as BuiltinFn),
-        ("type", builtin_type as BuiltinFn),
-        ("pwd", builtin_pwd as BuiltinFn),
-        ("cd", builtin_cd as BuiltinFn),
-    ])
-});
+type BuiltinFn = fn(Vec<String>, &StaticData, &mut Context) -> Result<Option<ExitCode>>;
 
 fn main() -> Result<ExitCode> {
     let prompt = "$ ";
@@ -36,7 +24,19 @@ fn main() -> Result<ExitCode> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    debug!(?SYSTEM_PATH);
+    let data = StaticData {
+        builtins: HashMap::from([
+            ("exit", builtin_exit as BuiltinFn),
+            ("echo", builtin_echo as BuiltinFn),
+            ("type", builtin_type as BuiltinFn),
+            ("pwd", builtin_pwd as BuiltinFn),
+            ("cd", builtin_cd as BuiltinFn),
+        ]),
+        path: parse_system_path(&env::var("PATH").unwrap_or_default()),
+    };
+
+    let mut ctx = Context {};
+    debug!(?ctx);
 
     loop {
         print!("{prompt}");
@@ -57,12 +57,12 @@ fn main() -> Result<ExitCode> {
         debug!(?cmd);
 
         let program = cmd.program.as_str();
-        if let Some(builtin_fn) = BUILTINS.get(program) {
-            let exit_code = builtin_fn(cmd.args)?;
+        if let Some(builtin_fn) = data.builtins.get(program) {
+            let exit_code = builtin_fn(cmd.args, &data, &mut ctx)?;
             if let Some(exit_code) = exit_code {
                 return Ok(exit_code);
             }
-        } else if find_executable(&SYSTEM_PATH, program).is_some() {
+        } else if find_executable(&data.path, program).is_some() {
             debug!(program, "executing program");
             let output = Command::new(program).args(cmd.args).output().unwrap();
 
@@ -73,6 +73,15 @@ fn main() -> Result<ExitCode> {
         }
     }
 }
+
+#[derive(Debug, Clone)]
+struct StaticData {
+    builtins: HashMap<&'static str, BuiltinFn>,
+    path: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+struct Context {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Cmd {
@@ -137,16 +146,16 @@ fn parse(input: &str) -> Result<Cmd> {
     })
 }
 
-fn find_executable(search_path: &str, executable_name: &str) -> Option<PathBuf> {
+fn find_executable(search_path: &[PathBuf], executable_name: &str) -> Option<PathBuf> {
     debug!(executable_name, "searching for executable");
 
     let executable_name_with_suffix = format!("{executable_name}{EXE_SUFFIX}");
 
-    for path in search_path.split(SYSTEM_PATH_SPERATOR) {
+    for path in search_path {
         trace!(
             executable_name,
             executable_name_with_suffix,
-            path,
+            path = %path.display(),
             "searching for executable"
         );
         let Ok(entries) = fs::read_dir(path) else {
@@ -167,7 +176,11 @@ fn find_executable(search_path: &str, executable_name: &str) -> Option<PathBuf> 
 }
 
 #[instrument]
-fn builtin_exit(args: Vec<String>) -> Result<Option<ExitCode>> {
+fn builtin_exit(
+    args: Vec<String>,
+    data: &StaticData,
+    ctx: &mut Context,
+) -> Result<Option<ExitCode>> {
     let Some(exit_code) = args.first() else {
         return Ok(Some(ExitCode::SUCCESS));
     };
@@ -180,7 +193,11 @@ fn builtin_exit(args: Vec<String>) -> Result<Option<ExitCode>> {
 }
 
 #[instrument]
-fn builtin_echo(args: Vec<String>) -> Result<Option<ExitCode>> {
+fn builtin_echo(
+    args: Vec<String>,
+    data: &StaticData,
+    ctx: &mut Context,
+) -> Result<Option<ExitCode>> {
     debug!("executable builtin command 'echo'");
     let output = args.join(" ");
     println!("{output}");
@@ -188,13 +205,17 @@ fn builtin_echo(args: Vec<String>) -> Result<Option<ExitCode>> {
 }
 
 #[instrument]
-fn builtin_type(args: Vec<String>) -> Result<Option<ExitCode>> {
+fn builtin_type(
+    args: Vec<String>,
+    data: &StaticData,
+    ctx: &mut Context,
+) -> Result<Option<ExitCode>> {
     debug!("executable builtin command 'type'");
 
     for arg in args {
-        if BUILTINS.contains_key(&arg.as_str()) {
+        if data.builtins.contains_key(&arg.as_str()) {
             println!("{arg} is a shell builtin")
-        } else if let Some(executable_path) = find_executable(&SYSTEM_PATH, &arg) {
+        } else if let Some(executable_path) = find_executable(&data.path, &arg) {
             println!("{arg} is {}", executable_path.display());
         } else {
             println!("{arg}: not found");
@@ -205,7 +226,11 @@ fn builtin_type(args: Vec<String>) -> Result<Option<ExitCode>> {
 }
 
 #[instrument]
-fn builtin_pwd(_args: Vec<String>) -> Result<Option<ExitCode>> {
+fn builtin_pwd(
+    _args: Vec<String>,
+    data: &StaticData,
+    ctx: &mut Context,
+) -> Result<Option<ExitCode>> {
     debug!("executable builtin command 'pwd'");
 
     println!("{}", env::current_dir()?.display());
@@ -214,7 +239,7 @@ fn builtin_pwd(_args: Vec<String>) -> Result<Option<ExitCode>> {
 }
 
 #[instrument]
-fn builtin_cd(args: Vec<String>) -> Result<Option<ExitCode>> {
+fn builtin_cd(args: Vec<String>, data: &StaticData, ctx: &mut Context) -> Result<Option<ExitCode>> {
     assert!(args.len() == 1);
 
     debug!("executable builtin command 'cd'");
@@ -265,4 +290,11 @@ impl StrExt for str {
 
         output
     }
+}
+
+fn parse_system_path(system_path: &str) -> Vec<PathBuf> {
+    system_path
+        .split(SYSTEM_PATH_SPERATOR)
+        .map(PathBuf::from)
+        .collect()
 }
